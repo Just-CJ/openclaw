@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { createEditTool, createReadTool, createWriteTool } from "@mariozechner/pi-coding-agent";
 import { SafeOpenError, openFileWithinRoot, writeFileWithinRoot } from "../infra/fs-safe.js";
+import { expandHomePrefix } from "../infra/home-dir.js";
 import { detectMime } from "../media/mime.js";
 import { sniffMimeFromBase64 } from "../media/sniff-mime-from-base64.js";
 import type { ImageSanitizationLimits } from "./image-sanitization.js";
@@ -433,6 +434,11 @@ export function normalizeToolParams(params: unknown): Record<string, unknown> | 
   if ("new_string" in normalized && !("newText" in normalized)) {
     normalized.newText = normalized.new_string;
     delete normalized.new_string;
+  }
+  // Expand ~ in file paths so downstream operations and guards see the absolute path.
+  // LLMs naturally generate ~ paths (Unix convention), and path.resolve() does not expand ~.
+  if (typeof normalized.path === "string" && normalized.path.startsWith("~")) {
+    normalized.path = expandHomePrefix(normalized.path);
   }
   // Some providers/models emit text payloads as structured blocks instead of raw strings.
   // Normalize these for write/edit so content matching and writes stay deterministic.

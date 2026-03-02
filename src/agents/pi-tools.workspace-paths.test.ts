@@ -193,6 +193,50 @@ describe("workspace path resolution", () => {
   });
 });
 
+describe("tilde expansion in file paths", () => {
+  it.runIf(process.platform !== "win32")(
+    "read/write/edit tools expand ~ in file paths to the absolute home directory",
+    async () => {
+      await withTempDir("openclaw-tilde-", async (tmpDir) => {
+        // Use tmpDir as the fake home directory and workspace root so the file
+        // passes workspaceOnly checks (default is workspaceOnly=false, so no
+        // workspace restriction applies here).
+        const homeDir = path.join(tmpDir, "home");
+        await fs.mkdir(homeDir, { recursive: true });
+        const workspaceDir = tmpDir;
+
+        // Stub HOME so expandHomePrefix uses our temp dir, not the isolated
+        // test home that setup.ts installs.
+        vi.stubEnv("HOME", homeDir);
+        vi.stubEnv("OPENCLAW_HOME", "");
+        try {
+          const testFile = path.join(homeDir, "config.toml");
+          await fs.writeFile(testFile, "foo = bar", "utf8");
+
+          const tools = createOpenClawCodingTools({ workspaceDir });
+          const { readTool, editTool } = expectReadWriteEditTools(tools);
+
+          // Read via tilde path (uses file_path alias)
+          const readResult = await readTool.execute("tilde-read", {
+            file_path: "~/config.toml",
+          });
+          expect(getTextContent(readResult)).toContain("foo = bar");
+
+          // Edit via tilde path (uses old_string/new_string aliases)
+          await editTool.execute("tilde-edit", {
+            file_path: "~/config.toml",
+            old_string: "foo = bar",
+            new_string: "foo = baz",
+          });
+          expect(await fs.readFile(testFile, "utf8")).toBe("foo = baz");
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      });
+    },
+  );
+});
+
 describe("sandboxed workspace paths", () => {
   it("uses sandbox workspace for relative read/write/edit", async () => {
     await withTempDir("openclaw-sandbox-", async (sandboxDir) => {
